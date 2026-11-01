@@ -1,6 +1,6 @@
 // Service worker do Pedido Rápido: guarda o app no aparelho para abrir sem internet.
 // Ao mudar qualquer arquivo, troque o número da versão abaixo.
-const VERSION = 'pedido-rapido-v1';
+const VERSION = 'pedido-rapido-v2';
 const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
