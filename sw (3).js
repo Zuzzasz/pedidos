@@ -1,0 +1,62 @@
+// Service worker do Pedido Rápido: guarda o app, o catálogo e as fotos no aparelho para abrir sem internet.
+// Ao mudar qualquer arquivo do app, troque o número da versão abaixo.
+const VERSION = 'pedido-rapido-v6';
+const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'catalogo.csv', 'marca-neilar.jpg'];
+
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(VERSION).then(async (c) => {
+      await c.addAll(CORE);
+      // Baixa as fotos listadas no catálogo (coluna "foto"). Se alguma falhar, as outras continuam.
+      try {
+        const txt = await (await fetch('catalogo.csv', { cache: 'no-cache' })).text();
+        const fotos = txt.split(/\r?\n/).map((l) => (l.split(';')[7] || '').trim()).filter((f) => f.startsWith('fotos/'));
+        await Promise.all(fotos.map((f) => c.add(f).catch(() => {})));
+      } catch (err) { /* sem catálogo: segue sem pré-carregar as fotos */ }
+    }).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin !== location.origin) return; // fontes do Google carregam pela rede quando houver
+  // O catálogo vai sempre buscar a versão nova na rede; sem internet usa a última guardada.
+  if (url.pathname.endsWith('/catalogo.csv')) {
+    e.respondWith(
+      fetch(req, { cache: 'no-cache' })
+        .then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(VERSION).then((c) => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req))
+    );
+    return;
+  }
+  e.respondWith(
+    caches.match(req).then((hit) => {
+      const net = fetch(req)
+        .then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(VERSION).then((c) => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => hit || caches.match('index.html'));
+      return hit || net;
+    })
+  );
+});
