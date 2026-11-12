@@ -1,10 +1,20 @@
-// Service worker do Pedido Rápido: guarda o app no aparelho para abrir sem internet.
-// Ao mudar qualquer arquivo, troque o número da versão abaixo.
-const VERSION = 'pedido-rapido-v3';
+// Service worker do Pedido Rápido: guarda o app, o catálogo e as fotos no aparelho para abrir sem internet.
+// Ao mudar qualquer arquivo do app, troque o número da versão abaixo.
+const VERSION = 'pedido-rapido-v4';
 const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'catalogo.csv'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(VERSION).then(async (c) => {
+      await c.addAll(CORE);
+      // Baixa as fotos listadas no catálogo (coluna "foto"). Se alguma falhar, as outras continuam.
+      try {
+        const txt = await (await fetch('catalogo.csv', { cache: 'no-cache' })).text();
+        const fotos = txt.split(/\r?\n/).map((l) => (l.split(';')[7] || '').trim()).filter((f) => f.startsWith('fotos/'));
+        await Promise.all(fotos.map((f) => c.add(f).catch(() => {})));
+      } catch (err) { /* sem catálogo: segue sem pré-carregar as fotos */ }
+    }).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
