@@ -301,7 +301,10 @@ function profileForm(){
    '<p class="muted">Aparece no topo do PDF do pedido. Se ficar vazio, usa Neilar. O representante sai sempre como Zuza BF Representações.</p>'+
    '<form data-form="profile" style="display:flex;flex-direction:column;gap:10px">'+
    '<label class="f">Fornecedor / indústria<input name="fornecedor" placeholder="NEILAR IND E COM DE ALIMENTOS LTDA" value="'+esc(p.fornecedor||'')+'"></label>'+
-   '<button class="btn" type="submit">Salvar</button></form>');
+   '<button class="btn" type="submit">Salvar</button></form>'+
+   '<hr style="border:0;border-top:1px solid #0002;margin:14px 0">'+
+   (AUTH?'<p class="muted">Conta na nuvem: <strong>'+esc(AUTH.email)+'</strong><br>Seus pedidos são enviados automaticamente.</p><button class="btn plain" data-act="logout">Sair da conta</button>':
+   '<p class="muted"><strong>Conta na nuvem</strong><br>Entre para enviar os pedidos ao administrador (e ver todos, se for o admin).</p><form data-form="login" style="display:flex;flex-direction:column;gap:10px"><label class="f">E-mail<input name="email" type="email" autocomplete="username"></label><label class="f">Senha<input name="senha" type="password" autocomplete="current-password"></label><button class="btn" type="submit">Entrar</button></form>'));
 }
 function clientForm(c){
   c=c||{};
@@ -398,18 +401,19 @@ function finish(){
   if(!items.length)return;
   var o={id:uid(),num:S.seq++,date:iso(new Date()),clientId:c.id,clientCode:c.code,clientName:c.name,clientDoc:c.doc||'',clientAddr:c.addr||'',clientPhone:c.phone||'',clientIe:c.ie||'',clientBairro:c.bairro||'',clientCep:c.cep||'',clientCidade:c.cidade||'',clientUf:c.uf||'',transp:S.cart.transp||'',prof:JSON.parse(JSON.stringify(S.profile||{})),items:items,total:cartTotal(),prazo:S.cart.prazo,obs:S.cart.obs||'',tabela:hasTabelas()?S.tabela.toUpperCase():''};
   S.orders.unshift(o);S.cart.items={};S.cart.obs='';S.cart.clientId=null;
-  save();toast('Pedido '+pad(o.num)+' salvo');view='pedidos';render();window.scrollTo(0,0);orderSheet(o.id);
+  save();syncOrders();toast('Pedido '+pad(o.num)+' salvo');view='pedidos';render();window.scrollTo(0,0);orderSheet(o.id);
 }
 function pad(n){return '#'+String(n).padStart(4,'0')}
 
 /* pedidos */
 function vPedidos(){
-  $('#sub').innerHTML='';
+  $('#sub').innerHTML=AUTH?'<div class="row" style="padding:0 16px 8px"><button class="btn grow '+(pedTab==='local'?'':'plain')+'" data-act="ptab" data-id="local">Neste celular</button><button class="btn grow '+(pedTab==='cloud'?'':'plain')+'" data-act="ptab" data-id="cloud">Nuvem (todos)</button></div>':'';
+  if(AUTH&&pedTab==='cloud'){vNuvem();return}
   if(!S.orders.length){$('#view').innerHTML='<div class="empty">'+ic('list')+'<strong>Nenhum pedido ainda</strong><span>Os pedidos finalizados aparecem aqui, prontos para enviar.</span></div>';return}
   $('#view').innerHTML=S.orders.map(function(o){
     var n=o.items.reduce(function(a,i){return a+i.qty},0);
     return '<article class="card" data-act="order" data-id="'+o.id+'" style="cursor:pointer"><div class="c-head"><span class="pill">'+pad(o.num)+'</span><h3>'+esc(o.clientName)+'</h3></div>'+
-     '<div class="row" style="justify-content:space-between;align-items:baseline"><span class="muted num">'+fmtDate(o.date)+' · '+n+' cx · '+esc(o.prazo)+'</span><strong class="num" style="font-family:var(--f-display);font-size:20px">'+brl(o.total)+'</strong></div></article>'}).join('');
+     '<div class="row" style="justify-content:space-between;align-items:baseline"><span class="muted num">'+fmtDate(o.date)+' · '+n+' cx · '+esc(o.prazo)+(AUTH?(o.cloud?' · ☁ enviado':' · pendente'):'')+'</span><strong class="num" style="font-family:var(--f-display);font-size:20px">'+brl(o.total)+'</strong></div></article>'}).join('');
 }
 function orderText(o){
   var t='PEDIDO '+pad(o.num)+' - '+fmtDate(o.date)+'\nCliente: '+o.clientCode+' - '+o.clientName+'\nPrazo: '+o.prazo+(o.tabela?'\nTabela: '+o.tabela:'')+'\n\n';
@@ -419,14 +423,14 @@ function orderText(o){
   return t;
 }
 function orderSheet(id){
-  var o=byId(S.orders,id);if(!o)return;
+  var o=findOrder(id);if(!o)return;
   var t=orderText(o);
   openSheet('Pedido '+pad(o.num),
-   '<div class="muted">'+esc(o.clientName)+' · '+fmtDate(o.date)+'</div>'+
+   '<div class="muted">'+esc(o.clientName)+' · '+fmtDate(o.date)+(o.vend?' · vendedor: '+esc(o.vend):'')+'</div>'+
    '<label class="f">Resumo para enviar<textarea class="mono" id="otxt" readonly rows="10">'+esc(t)+'</textarea></label>'+
    '<button class="btn block" data-act="pdf" data-id="'+o.id+'">'+ic('down')+' Gerar PDF do pedido</button>'+
    '<div class="row"><button class="btn plain grow" data-act="copy">Copiar resumo</button><a class="btn ghost grow" target="_blank" rel="noopener" href="https://wa.me/?text='+encodeURIComponent(t)+'">WhatsApp</a></div>'+
-   '<div class="row"><button class="btn plain grow" data-act="reorder" data-id="'+o.id+'">Repetir pedido</button><button class="btn danger" data-act="delorder" data-id="'+o.id+'" aria-label="Excluir pedido">'+ic('trash')+'</button></div>');
+   (o.vend?'':'<div class="row"><button class="btn plain grow" data-act="reorder" data-id="'+o.id+'">Repetir pedido</button><button class="btn danger" data-act="delorder" data-id="'+o.id+'" aria-label="Excluir pedido">'+ic('trash')+'</button></div>'));
 }
 
 /* importação */
@@ -626,7 +630,7 @@ function buildPdf(o,imgs){
   return new Blob(chunks,{type:'application/pdf'});
 }
 function makePdf(id,btn){
-  var o=byId(S.orders,id);if(!o)return;
+  var o=findOrder(id);if(!o)return;
   if(btn){btn.disabled=true;btn.style.opacity='.6'}
   var paths={'marca-neilar.jpg':1};o.items.forEach(function(it){
     var f=it.foto;if(!f){S.products.forEach(function(p){if(p.code===it.code&&p.foto)f=p.foto});it.foto=f||''}
@@ -676,6 +680,11 @@ document.addEventListener('click',function(e){
     var ta=$('#otxt');ta.focus();ta.select();
     var ok=function(){toast('Resumo copiado')},no=function(){toast('Selecione e copie o texto')};
     try{navigator.clipboard.writeText(ta.value).then(ok,no)}catch(x){no()}}
+  else if(act==='logout')doLogout();
+  else if(act==='ptab'){pedTab=id;render();if(id==='cloud')loadCloud()}
+  else if(act==='corder')orderSheet(id);
+  else if(act==='csv')csvExport();
+  else if(act==='refresh')loadCloud(true);
   else if(act==='profile')profileForm();
   else if(act==='pdf')makePdf(id,a);
   else if(act==='reorder'){
@@ -707,6 +716,7 @@ document.addEventListener('submit',function(e){
     if(c){c.code=d.code;c.name=d.name;c.doc=d.doc;c.addr=d.addr;c.phone=d.phone;c.last=d.last;c.ie=d.ie;c.cep=d.cep;c.bairro=d.bairro;c.cidade=d.cidade;c.uf=(d.uf||'').toUpperCase();delete c.ex}
     else S.clients.unshift({id:uid(),code:d.code||String(1000+S.clients.length+1),name:d.name,doc:d.doc,addr:d.addr,phone:d.phone,last:d.last,ie:d.ie,cep:d.cep,bairro:d.bairro,cidade:d.cidade,uf:(d.uf||'').toUpperCase()});
     save();closeSheet();render();toast('Cliente salvo');
+  }else if(kind==='login'){doLogin(d.email,d.senha);
   }else if(kind==='profile'){
     S.profile={fornecedor:d.fornecedor};save();closeSheet();toast('Dados salvos');
   }else if(kind==='prod'){
@@ -725,9 +735,99 @@ document.addEventListener('submit',function(e){
 document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!$('#ov').hidden)closeSheet()});
 window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();installEv=e;render()});
 if('serviceWorker' in navigator&&location.protocol.indexOf('http')===0){try{navigator.serviceWorker.register('sw.js').catch(function(){})}catch(e){}}
+/* ===== nuvem (Supabase): login, envio e painel do administrador ===== */
+var SUPA_URL='https://khaprvvetejglzuaqjzv.supabase.co',SUPA_KEY='sb_publishable_NtE30AUzlrGQw6FabZSCeg_9mC8rYjo',TB='pedidos_nuvem';
+var AKEY='pedidorapido.auth',AUTH=null,CLOUD=[],cloudMsg='',pedTab='local',syncing=false;
+try{AUTH=JSON.parse(localStorage.getItem(AKEY)||'null')}catch(e){AUTH=null}
+function saveAuth(){try{if(AUTH)localStorage.setItem(AKEY,JSON.stringify(AUTH));else localStorage.removeItem(AKEY)}catch(e){}}
+function authSet(j){AUTH={access:j.access_token,refresh:j.refresh_token,exp:Date.now()+(j.expires_in||3600)*1000-60000,email:(j.user&&j.user.email)||(AUTH&&AUTH.email)||'',uid:(j.user&&j.user.id)||(AUTH&&AUTH.uid)||''};saveAuth()}
+function sbRaw(path,opt){
+  opt=opt||{};var h={apikey:SUPA_KEY,'Content-Type':'application/json'};
+  if(opt.token)h.Authorization='Bearer '+opt.token;
+  if(opt.prefer)h.Prefer=opt.prefer;
+  return fetch(SUPA_URL+path,{method:opt.method||'GET',headers:h,body:opt.body?JSON.stringify(opt.body):undefined}).then(function(r){
+    return r.text().then(function(t){var j=null;try{j=t?JSON.parse(t):null}catch(e){}
+      if(!r.ok){var er=new Error((j&&(j.msg||j.message||j.error_description||j.error))||('HTTP '+r.status));er.status=r.status;throw er}
+      return j})})
+}
+function refreshTok(){
+  if(!AUTH||!AUTH.refresh)return Promise.reject(new Error('sem login'));
+  return sbRaw('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:AUTH.refresh}}).then(authSet).catch(function(e){if(e.status&&e.status<500){AUTH=null;saveAuth()}throw e});
+}
+function sbAuthed(path,opt){
+  if(!AUTH)return Promise.reject(new Error('sem login'));
+  var go=function(){opt=opt||{};opt.token=AUTH.access;return sbRaw(path,opt)};
+  var p=Date.now()>AUTH.exp?refreshTok().then(go):go();
+  return p.catch(function(e){if(e.status===401&&AUTH){return refreshTok().then(go)}throw e});
+}
+function doLogin(email,senha){
+  if(!email||!senha){toast('Informe e-mail e senha');return}
+  toast('Entrando...');
+  sbRaw('/auth/v1/token?grant_type=password',{method:'POST',body:{email:email,password:senha}}).then(function(j){
+    authSet(j);closeSheet();toast('Login feito');render();syncOrders();if(pedTab==='cloud')loadCloud()
+  }).catch(function(e){toast(e.status===400?'E-mail ou senha incorretos':'Sem conexão com a nuvem ('+e.message+')')});
+}
+function doLogout(){AUTH=null;CLOUD=[];pedTab='local';saveAuth();closeSheet();render();toast('Saiu da conta')}
+function toRow(o){
+  return {vendedor_id:AUTH.uid,vendedor_email:AUTH.email,app_id:o.id,num:o.num,cliente:o.clientName,total:o.total,dados:o};
+}
+function syncOrders(){
+  if(!AUTH||syncing||!navigator.onLine)return;
+  var pend=S.orders.filter(function(o){return !o.cloud});
+  if(!pend.length)return;
+  syncing=true;
+  var next=function(i){
+    if(i>=pend.length){syncing=false;save();if(view==='pedidos')render();return Promise.resolve()}
+    var o=pend[i],copy=JSON.parse(JSON.stringify(o));delete copy.cloud;
+    return sbAuthed('/rest/v1/'+TB+'?on_conflict=vendedor_id,app_id',{method:'POST',prefer:'resolution=ignore-duplicates,return=minimal',body:toRow(copy)}).then(function(){o.cloud=true;return next(i+1)});
+  };
+  next(0).catch(function(e){syncing=false;if(e.status===404||/relation|schema cache/i.test(e.message))toast('Tabela da nuvem não existe. Rode o SQL no Supabase.')});
+}
+function loadCloud(manual){
+  if(!AUTH)return;
+  cloudMsg='Carregando...';if(view==='pedidos'&&pedTab==='cloud')drawCloud();
+  sbAuthed('/rest/v1/'+TB+'?select=id,vendedor_email,criado_em,dados&order=criado_em.desc&limit=1000').then(function(rows){
+    CLOUD=(rows||[]).map(function(r){var o=r.dados||{};o.id=r.id;o.vend=r.vendedor_email||'';o.criado=r.criado_em;return o});
+    cloudMsg='';if(view==='pedidos'&&pedTab==='cloud')vPedidos();
+  }).catch(function(e){cloudMsg='Erro: '+e.message;if(view==='pedidos'&&pedTab==='cloud')drawCloud()});
+}
+function findOrder(id){return byId(S.orders,id)||byId(CLOUD,id)}
+function cloudFiltered(){
+  var fv=($('#fv')||{}).value||'',q=(($('#q-nuvem')||{}).value||'').toLowerCase();
+  return CLOUD.filter(function(o){return (!fv||o.vend===fv)&&(!q||(o.clientName||'').toLowerCase().indexOf(q)>=0||String(o.num).indexOf(q)>=0||(o.clientCode||'').indexOf(q)>=0)});
+}
+function drawCloud(){
+  var el=$('#cl');if(!el)return;
+  if(cloudMsg){el.innerHTML='<div class="empty"><span>'+esc(cloudMsg)+'</span></div>';return}
+  var L=cloudFiltered();
+  if(!L.length){el.innerHTML='<div class="empty">'+ic('list')+'<strong>Nenhum pedido na nuvem</strong><span>Os pedidos enviados pelos vendedores aparecem aqui.</span></div>';return}
+  var tot=L.reduce(function(a,o){return a+(o.total||0)},0);
+  el.innerHTML='<p class="muted num" style="margin:4px 0 8px">'+L.length+' pedidos · '+brl(tot)+'</p>'+L.map(function(o){
+    var n=o.items.reduce(function(a,i){return a+i.qty},0);
+    return '<article class="card" data-act="corder" data-id="'+o.id+'" style="cursor:pointer"><div class="c-head"><span class="pill">'+pad(o.num)+'</span><h3>'+esc(o.clientName)+'</h3></div><div class="row" style="justify-content:space-between;align-items:baseline"><span class="muted num">'+fmtDate(o.date)+' · '+n+' cx · '+esc(o.vend)+'</span><strong class="num" style="font-family:var(--f-display);font-size:20px">'+brl(o.total)+'</strong></div></article>'}).join('');
+}
+function vNuvem(){
+  var vs=[];CLOUD.forEach(function(o){if(o.vend&&vs.indexOf(o.vend)<0)vs.push(o.vend)});
+  var cur=($('#fv')||{}).value||'';
+  $('#view').innerHTML='<div class="row" style="margin-bottom:8px"><select id="fv" class="grow" style="padding:10px;border-radius:10px"><option value="">Todos os vendedores</option>'+vs.map(function(v){return '<option'+(v===cur?' selected':'')+' value="'+esc(v)+'">'+esc(v)+'</option>'}).join('')+'</select><button class="btn plain" data-act="refresh">Atualizar</button></div>'+
+   '<div class="row" style="margin-bottom:8px"><input id="q-nuvem" class="grow" placeholder="Buscar cliente ou nº do pedido" style="padding:10px;border-radius:10px"><button class="btn ghost" data-act="csv">CSV</button></div><div id="cl"></div>';
+  drawCloud();
+}
+function csvExport(){
+  var L=cloudFiltered(),r=['Pedido;Data;Vendedor;Cod cliente;Cliente;CNPJ;Cod produto;Produto;Caixas;Un/cx;Preco un;Total item;Total pedido;Prazo'];
+  var f=function(n){return String(n).replace('.',',')};
+  L.forEach(function(o){o.items.forEach(function(i){r.push([o.num,o.date,o.vend,o.clientCode,o.clientName,o.clientDoc,i.code,i.name,i.qty,i.un,f(i.pu),f((i.pu*i.un*i.qty).toFixed(2)),f(o.total),o.prazo].map(function(x){return '"'+String(x==null?'':x).replace(/"/g,'""')+'"'}).join(';'))})});
+  var b=new Blob(['﻿'+r.join('\r\n')],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(b);a.download='pedidos.csv';document.body.appendChild(a);a.click();setTimeout(function(){a.remove()},500);
+}
+document.addEventListener('input',function(e){if(e.target.id==='q-nuvem')drawCloud()});
+document.addEventListener('change',function(e){if(e.target.id==='fv')drawCloud()});
+window.addEventListener('online',syncOrders);
+setTimeout(function(){syncOrders()},1500);
+
 render();
 loadCatalog();
-document.addEventListener('visibilitychange',function(){if(!document.hidden)loadCatalog()});
+document.addEventListener('visibilitychange',function(){if(!document.hidden){loadCatalog();syncOrders()}});
 })();
 </script>
 </body>

@@ -1,6 +1,6 @@
 // Service worker do Pedido Rápido: guarda o app, o catálogo e as fotos no aparelho para abrir sem internet.
 // Ao mudar qualquer arquivo do app, troque o número da versão abaixo.
-const VERSION = 'pedido-rapido-v6';
+const VERSION = 'pedido-rapido-v7';
 const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'catalogo.csv', 'marca-neilar.jpg'];
 
 self.addEventListener('install', (e) => {
